@@ -1,0 +1,180 @@
+from pydantic import BaseModel
+from datetime import datetime
+from bson import ObjectId
+
+
+class Event(BaseModel):
+    id: str = None  # MongoDB's ObjectId
+    title: str
+    description: str
+    start_time: datetime
+    end_time: datetime
+
+    class Config:
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+from pydantic import BaseModel
+from datetime import datetime
+
+class EventCreate(BaseModel):
+    title: str
+    description: str
+    start_time: datetime
+    end_time: datetime
+
+class EventUpdate(EventCreate):
+    pass
+from pymongo import MongoClient
+from .models import Event
+from .schemas import EventCreate
+
+client = MongoClient("mongodb://localhost:27017/")
+db = client.calendar
+
+def create_event(event: EventCreate):
+    event_data = event.dict()
+    result = db.events.insert_one(event_data)
+    return str(result.inserted_id)
+
+def get_event(event_id: str):
+    return db.events.find_one({"_id": ObjectId(event_id)})
+
+def update_event(event_id: str, event: EventCreate):
+    db.events.update_one({"_id": ObjectId(event_id)}, {"$set": event.dict()})
+
+def delete_event(event_id: str):
+    db.events.delete_one({"_id": ObjectId(event_id)})
+
+def get_events_by_date_range(start_date, end_date):
+    return list(db.events.find({"start_time": {"$gte": start_date}, "end_time": {"$lte": end_date}}))
+from fastapi import APIRouter, HTTPException
+from .schemas import EventCreate, EventUpdate
+from .crud import create_event, get_event, update_event, delete_event, get_events_by_date_range
+
+router = APIRouter()
+
+@router.post("/events/", response_model=str)
+def create_event_api(event: EventCreate):
+    return create_event(event)
+
+@router.get("/events/{event_id}")
+def read_event(event_id: str):
+    event = get_event(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return event
+
+@router.put("/events/{event_id}")
+def update_event_api(event_id: str, event: EventUpdate):
+    update_event(event_id, event)
+    return {"message": "Event updated"}
+
+@router.delete("/events/{event_id}")
+def delete_event_api(event_id: str):
+    delete_event(event_id)
+    return {"message": "Event deleted"}
+
+@router.get("/events/")
+def get_events(start_date: str, end_date: str):
+    events = get_events_by_date_range(start_date, end_date)
+    return events
+from fastapi import FastAPI
+from .routes import router as event_router
+
+app = FastAPI()
+
+app.include_router(event_router)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+   
+
+import React, { useState, useEffect } from 'react';
+import { DayView, WeekView, MonthView } from './views';
+import axios from 'axios';
+
+const Calendar = () => {
+  const [view, setView] = useState('month');
+  const [events, setEvents] = useState([]);
+
+  useEffect(() => {
+    fetchEvents();
+  }, [view]);
+
+  const fetchEvents = async () => {
+    const response = await axios.get(`/api/events?start_date=${startDate}&end_date=${endDate}`);
+    setEvents(response.data);
+  };
+
+  return (
+    <div>
+      <div>
+        <button onClick={() => setView('day')}>Day</button>
+        <button onClick={() => setView('week')}>Week</button>
+        <button onClick={() => setView('month')}>Month</button>
+      </div>
+      {view === 'day' && <DayView events={events} />}
+      {view === 'week' && <WeekView events={events} />}
+      {view === 'month' && <MonthView events={events} />}
+    </div>
+  );
+};
+
+export default Calendar;
+import React from 'react';
+
+const DayView = ({ events }) => {
+  return (
+    <div>
+      {events.map(event => (
+        <div key={event.id}>
+          <h3>{event.title}</h3>
+          <p>{event.description}</p>
+          <p>{new Date(event.start_time).toLocaleTimeString()} - {new Date(event.end_time).toLocaleTimeString()}</p>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+export default DayView;
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const EventModal = ({ event, onClose, onSave }) => {
+  const [title, setTitle] = useState(event?.title || '');
+  const [description, setDescription] = useState(event?.description || '');
+  const [startTime, setStartTime] = useState(event?.start_time || '');
+  const [endTime, setEndTime] = useState(event?.end_time || '');
+
+  const handleSave = async () => {
+    const newEvent = { title, description, start_time: startTime, end_time: endTime };
+    if (event) {
+      await axios.put(`/api/events/${event.id}`, newEvent);
+    } else {
+      await axios.post('/api/events/', newEvent);
+    }
+    onSave();
+  };
+
+  return (
+    <div className="modal">
+      <h2>{event ? 'Edit Event' : 'Create Event'}</h2>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
+      <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description"></textarea>
+      <input type="datetime-local" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+      <input type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+      <button onClick={handleSave}>Save</button>
+      <button onClick={onClose}>Cancel</button>
+    </div>
+  );
+};
+
+export default EventModal;
+
+
+ 
+
+
+   
